@@ -1,0 +1,43 @@
+name: Sync All Branches from Upstream
+
+on:
+  schedule:
+    - cron: "0 19 * * *"  # 每天午夜同步
+  workflow_dispatch:  # 允许手动触发同步
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 确保获取完整的 Git 历史
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Backup sync workflow file
+        run: |
+          mkdir -p backup
+          cp .github/workflows/sync-upstream.yml backup/  # 只备份这个 GitHub Actions 文件
+
+      - name: Add upstream and fetch all branches
+        run: |
+          git remote add upstream https://github.com/kenzok8/small-package.git || echo "Upstream remote already exists"
+          git fetch upstream --prune  # 获取所有远程分支并清理已删除的分支
+
+      - name: Sync all branches
+        run: |
+          for branch in $(git branch -r | grep 'upstream/' | grep -v 'HEAD' | sed 's/upstream\///'); do
+            echo "Syncing branch: $branch"
+            git checkout -B "$branch" "upstream/$branch"
+            rm -f .github/workflows/sync-upstream.yml  # 删除同步过来的 GitHub Actions 文件
+            mkdir -p .github/workflows  # 确保 .github/workflows/ 目录存在
+            cp backup/sync-upstream.yml .github/workflows/sync-upstream.yml  # 恢复本地的同步文件
+            git add .github/workflows/sync-upstream.yml
+            git commit -m "Restore sync-upstream.yml after upstream sync" || echo "No changes to commit"
+            git push origin "$branch" --force
+          done
